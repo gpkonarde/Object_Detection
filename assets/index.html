@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>document</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: black;
+        flex-direction: column;
+      }
+
+      #webcam {
+        display: none;
+      }
+
+      canvas {
+        border: 1px solid white;
+        width: 90%; /* Default width for smaller screens */
+        height: auto; /* Maintain aspect ratio */
+        position: relative;
+        display: block;
+      }
+
+      /* Controls container for buttons and info */
+      #controlsContainer {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        position: absolute;
+        bottom: 5%;
+        width: 90%; /* Occupy most of the screen width for small devices */
+        background-color: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 10px;
+      }
+
+      #captureBtn {
+        padding: 12px 20px;
+        background-color: green;
+        color: white;
+        font-size: 14px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        margin-top: 10px;
+        width: 100%; /* Full-width button for small screens */
+      }
+
+      #captureBtn:hover {
+        background-color: darkgreen;
+      }
+
+      #infoContainer {
+        max-height: 150px; /* Adjust height for better alignment */
+        overflow-y: auto;
+        color: white;
+        margin: 10px 0;
+        width: 100%; /* Responsive width for smaller screens */
+        text-align: center;
+      }
+
+      #infoContainer ul {
+        padding: 0;
+        margin: 0;
+        list-style: none;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      /* Media Query: For tablets and medium-sized screens */
+      @media (min-width: 768px) {
+        canvas {
+          width: 70%; /* Larger canvas for tablets */
+        }
+
+        #controlsContainer {
+          width: 70%; /* More compact controls for tablets */
+          padding: 20px;
+        }
+
+        #captureBtn {
+          font-size: 16px;
+        }
+
+        #infoContainer {
+          max-height: 200px;
+        }
+      }
+
+      /* Media Query: For larger screens and desktops */
+      @media (min-width: 1024px) {
+        canvas {
+          width: 50%; /* More compact for desktops */
+        }
+
+        #controlsContainer {
+          width: 50%;
+          padding: 25px;
+        }
+
+        #captureBtn {
+          font-size: 18px;
+        }
+
+        #infoContainer {
+          max-height: 300px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <video id="webcam" width="640" height="480" autoplay></video>
+    <canvas id="canvas"></canvas>
+
+    <!-- Grouped Controls -->
+    <div id="controlsContainer">
+      <div id="infoContainer" class="hidden">
+        <h2>Detected Objects:</h2>
+        <ul id="detectedObjectsList"></ul>
+      </div>
+      <button id="captureBtn">Capture</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script>
+      const video = document.getElementById('webcam');
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const captureButton = document.getElementById('captureBtn'); // Capture button
+      const infoContainer = document.getElementById('infoContainer'); // Info container to show detected objects
+      const detectedObjectsList = document.getElementById(
+        'detectedObjectsList',
+      );
+
+      let detector;
+      let keypointsData = [];
+
+      // Setup the camera stream
+      async function setupCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {facingMode: 'user'},
+          // video: {facingMode: 'environment'},
+        });
+        video.srcObject = stream;
+        return new Promise(resolve => {
+          video.onloadedmetadata = () => {
+            resolve(video);
+          };
+        });
+      }
+
+      // Load MoveNet model
+      async function loadMoveNet() {
+        detector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          /*BlazePose,
+          {
+            runtime: 'tfjs',
+            modelType: 'full',
+          },*/
+        );
+        console.log('BlazePose model loaded successfully');
+        await setupCamera(); // Start the camera once the model is loaded
+        video.play();
+        video.style.display = 'none';
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        detectPose(); // Start detecting poses
+      }
+
+      // Draw keypoints on the main canvas
+      function drawKeypoints(keypoints) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        keypoints.forEach(keypoint => {
+          if (keypoint.score > 0.5) {
+            const {x, y} = keypoint;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+          }
+        });
+
+        drawSkeleton(keypoints);
+      }
+
+      // Draw skeleton from the keypoints
+      function drawSkeleton(keypoints) {
+        const adjacentKeyPoints = poseDetection.util.getAdjacentPairs(
+          poseDetection.SupportedModels.MoveNet,
+        );
+
+        adjacentKeyPoints.forEach(([i, j]) => {
+          const kp1 = keypoints[i];
+          const kp2 = keypoints[j];
+
+          if (kp1.score > 0.5 && kp2.score > 0.5) {
+            ctx.beginPath();
+            ctx.moveTo(kp1.x, kp1.y);
+            ctx.lineTo(kp2.x, kp2.y);
+            ctx.strokeStyle = 'blue';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        });
+      }
+
+      // Detect pose and update the canvas with keypoints and skeleton
+      async function detectPose() {
+        const poses = await detector.estimatePoses(video);
+        if (poses.length > 0) {
+          drawKeypoints(poses[0].keypoints); // Draw keypoints and skeleton on the canvas
+        }
+        //   document.getElementById("webcam").style.display = none;
+        requestAnimationFrame(detectPose);
+      }
+
+      // Capture keypoints and display in the info container
+      captureButton.addEventListener('click', async () => {
+        const poses = await detector.estimatePoses(video);
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+
+          // Clear previous content
+          detectedObjectsList.innerHTML = '';
+
+          // Iterate over the keypoints and add the body parts with their coordinates to the list
+          keypoints.forEach(keypoint => {
+            if (keypoint.score > 0.5) {
+              const listItem = document.createElement('li');
+              listItem.textContent = `${
+                keypoint.name
+              }: (x: ${keypoint.x.toFixed(2)}, y: ${keypoint.y.toFixed(2)})`;
+              detectedObjectsList.appendChild(listItem);
+            }
+          });
+
+          // Show the info container
+          infoContainer.style.display = 'block';
+        }
+      });
+
+      // Main function to set up the camera and load the model
+      async function main() {
+        await loadMoveNet();
+      }
+
+      main(); // Call the main function to start the app
+    </script>
+  </body>
+</html>
