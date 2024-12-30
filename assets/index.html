@@ -128,6 +128,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
     <script>
       const video = document.getElementById('webcam');
       const canvas = document.getElementById('canvas');
@@ -144,7 +145,7 @@
       // Setup the camera stream
       async function setupCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {facingMode: 'user'},
+          video: {facingMode: 'environment'},
         });
         video.srcObject = stream;
         return new Promise(resolve => {
@@ -158,8 +159,10 @@
         detector = await poseDetection.createDetector(
           poseDetection.SupportedModels.BlazePose,
           {
-            runtime: 'tfjs',
-            modelType: 'full',
+            // runtime: 'tfjs',
+            runtime: 'mediapipe',
+            solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/pose',
+            modelType: 'Heavy',
           },
         );
         console.log('BlazePose model loaded successfully');
